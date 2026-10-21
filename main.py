@@ -185,6 +185,112 @@ def format_delivery(card: Dict[str, Any]) -> str:
     )
 
 
+def lookup_bin_info(card_number: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    cleaned = ''.join(ch for ch in str(card_number or '') if ch.isdigit())
+    if len(cleaned) < 6:
+        return {
+            'brand': str(fallback.get('BANCO') or 'N/A'),
+            'bank': str(fallback.get('BANCO') or 'N/A'),
+            'level': str(fallback.get('NIVEL') or 'classic').lower(),
+            'country': str(fallback.get('PAIS') or 'N/A'),
+            'type': 'credit'
+        }
+
+    bin_prefix = cleaned[:6]
+    endpoints = [
+        f'https://lookup.binlist.net/{bin_prefix}',
+        f'https://binlist.net/{bin_prefix}',
+        f'https://api.binlist.net/{bin_prefix}'
+    ]
+
+    for url in endpoints:
+        try:
+            req = urllib.request.Request(url, headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8', 'ignore'))
+            if not isinstance(data, dict):
+                continue
+
+            brand = str(data.get('scheme') or data.get('brand') or fallback.get('BANCO') or 'N/A').title()
+            bank_name = data.get('bank', {})
+            bank = str(bank_name.get('name') if isinstance(bank_name, dict) else bank_name or fallback.get('BANCO') or 'N/A')
+            country_data = data.get('country', {})
+            country = str(country_data.get('name') if isinstance(country_data, dict) else country_data or fallback.get('PAIS') or 'N/A')
+            level = str(fallback.get('NIVEL') or data.get('level') or '').lower().strip()
+            if not level:
+                brand_key = brand.lower()
+                if 'amex' in brand_key:
+                    level = 'amex'
+                elif 'gold' in brand_key:
+                    level = 'gold'
+                elif 'black' in brand_key or 'platinum' in brand_key:
+                    level = 'black'
+                elif 'euro' in brand_key or 'classic' in brand_key:
+                    level = 'classic'
+                else:
+                    level = 'classic'
+
+            card_type = str(data.get('type') or 'credit').lower()
+            return {
+                'brand': brand,
+                'bank': bank,
+                'level': level,
+                'country': country,
+                'type': card_type
+            }
+        except Exception:
+            continue
+
+    return {
+        'brand': str(fallback.get('BANCO') or 'N/A'),
+        'bank': str(fallback.get('BANCO') or 'N/A'),
+        'level': str(fallback.get('NIVEL') or 'classic').lower(),
+        'country': str(fallback.get('PAIS') or 'N/A'),
+        'type': 'credit'
+    }
+
+
+def build_purchase_receipt(card: Dict[str, Any], user: Dict[str, Any], level: str, price: float, auth_ref: str) -> str:
+    bin_info = lookup_bin_info(card.get('NUMERO'), card)
+    numero = str(card.get('NUMERO', 'N/A')).strip()
+    mes = str(card.get('MES', 'N/A')).strip()
+    ano = str(card.get('ANO', 'N/A')).strip()
+    cvv = str(card.get('CVV', 'N/A')).strip()
+    cpf = str(card.get('CPF', 'N/A')).strip()
+    nome = str(card.get('NOME', 'N/A')).strip()
+
+    parts = nome.split()
+    if len(parts) >= 2:
+        initials = ''.join(p[0].upper() + '.' for p in parts[1:])
+        nome_abrev = f"{parts[0]} {initials}".strip()
+    else:
+        nome_abrev = nome
+
+    brand = str(bin_info.get('brand') or card.get('BANCO') or 'N/A')
+    bank = str(bin_info.get('bank') or card.get('BANCO') or 'N/A')
+    level_name = str(bin_info.get('level') or card.get('NIVEL') or level or 'classic').lower()
+    country = str(bin_info.get('country') or card.get('PAIS') or 'N/A')
+    current_balance = float(user.get('balance', 0.0) or 0.0)
+
+    return (
+        "✨ Compra realizada!\n\n"
+        f"💳 Cartão: {numero}\n"
+        f"📅 Validade: {mes}/{ano}\n"
+        f"🔐 CVV: {cvv}\n\n"
+        f"💳 Bandeira: {brand}\n"
+        f"💠 Nível: {level_name}\n"
+        "⚜️ Tipo: CREDIT\n"
+        f"🏦 Banco: {bank}\n"
+        f"🌍 País: {country}\n\n"
+        "Dados do Titular:\n\n"
+        f"👤 Nome: {nome_abrev}\n"
+        f"🪪 CPF: {cpf}\n\n"
+        f"🔍 Retorno do Checker: Transação autorizada (rdAuthGater LIVE) ({auth_ref})\n"
+        f"💸 Valor: R$ {float(price):.2f}\n"
+        f"💰 Seu saldo atual: R$ {current_balance:.2f}"
+    )
+
+
 def welcome_header_text() -> str:
     return (
         "╔══════════════════════════════╗\n"
@@ -347,14 +453,15 @@ def process_purchase_level(message, from_user, level: str):
     user['bought_cards'] = user.get('bought_cards', 0) + 1
     save_json(USERS_FILE, users)
     pop_card(found_live)
-    delivery = format_delivery(found_live)
 
+    auth_ref = f"AUTH-{random.randint(100000, 999999)}"
+    receipt = build_purchase_receipt(found_live, user, level, price, auth_ref)
     ikb = types.InlineKeyboardMarkup()
     ikb.row(types.InlineKeyboardButton('Suporte', url=f'https://t.me/{SUPPORT_USERNAME.lstrip("@")}'), types.InlineKeyboardButton('Voltar', callback_data='back::menu'))
-    bot.send_message(message.chat.id, delivery, reply_markup=ikb)
+    bot.send_message(message.chat.id, receipt, reply_markup=ikb)
 
     try:
-        bot.send_message(REFS_CHANNEL, f'Nova compra: Usuário @{user.get("username")} | Nivel: {level}\n{delivery}')
+        bot.send_message(REFS_CHANNEL, f'Nova compra: Usuário @{user.get("username")} | Nivel: {level}\n{receipt}')
     except Exception as e:
         print('Failed to notify refs channel:', e)
 
