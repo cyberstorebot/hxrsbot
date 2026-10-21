@@ -223,9 +223,11 @@ def format_delivery(card: Dict[str, Any]) -> str:
 # ----------------------------
 
 def main_menu_markup() -> types.ReplyKeyboardMarkup:
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row('Compre Aqui', 'Suas Informações')
-    kb.row('Suporte')
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+    kb.row('Loja CC', 'Saldo')
+    kb.row('Depositar', 'Histórico')
+    kb.row('Suporte', 'Language')
+    kb.row('Honor Central — CHK • CC • GG')
     return kb
 
 
@@ -258,19 +260,29 @@ def cmd_start(message):
     uid = str(message.from_user.id)
     ensure_user(uid, message.from_user.username, message.from_user.first_name)
     txt = (
-        '✨ Bem-vindo à Store Bot!\n\n'
-        'Use o menu para navegar.\n'    )
-    bot.send_message(message.chat.id, txt, reply_markup=main_menu_markup())
+        '✨ Bem-vindo à Honor CC!\n\n'
+        'Aqui você compra CCs de qualidade com saldo pré-pago — rápido e direto.\n\n'
+        'Escolha uma opção abaixo:'
+    )
+    bot.send_message(message.chat.id, txt)
+    bot.send_message(message.chat.id, 'Menu', reply_markup=main_menu_markup())
 
 
-@bot.message_handler(func=lambda m: m.text == 'Compre Aqui')
+@bot.message_handler(commands=['menu'])
+def cmd_menu(message):
+    uid = str(message.from_user.id)
+    ensure_user(uid, message.from_user.username, message.from_user.first_name)
+    bot.send_message(message.chat.id, 'Menu principal', reply_markup=main_menu_markup())
+
+
+@bot.message_handler(func=lambda m: m.text in ['Compre Aqui', 'Loja CC'])
 def handle_compre(message):
     uid = str(message.from_user.id)
     ensure_user(uid, message.from_user.username, message.from_user.first_name)
-    bot.send_message(message.chat.id, '✨ Escolha um nível para continuar sua comprar\n\n📦 | Há cartões disponíveis', reply_markup=levels_inline_markup())
+    bot.send_message(message.chat.id, '✨ Escolha um nível para continuar sua compra\n\n📦 | Há cartões disponíveis', reply_markup=levels_inline_markup())
 
 
-@bot.message_handler(func=lambda m: m.text == 'Suas Informações')
+@bot.message_handler(func=lambda m: m.text in ['Suas Informações', 'Saldo'])
 def handle_info(message):
     uid = str(message.from_user.id)
     ensure_user(uid, message.from_user.username, message.from_user.first_name)
@@ -304,6 +316,26 @@ def handle_info(message):
         f"Manuais: {manuals}"
     )
     bot.send_message(message.chat.id, text)
+
+
+@bot.message_handler(func=lambda m: m.text == 'Depositar')
+def handle_depositar(message):
+    bot.send_message(message.chat.id, '💳 Depósito via Pix/Transferência\n\nEnvie o comprovante para o suporte ou use o canal da loja.\n\n📌 Suporte: ' + SUPPORT_USERNAME)
+
+
+@bot.message_handler(func=lambda m: m.text == 'Histórico')
+def handle_historico(message):
+    bot.send_message(message.chat.id, '📜 Seu histórico de compras aparecerá aqui em breve.\n\nUse /menu para voltar ao menu principal.')
+
+
+@bot.message_handler(func=lambda m: m.text == 'Suporte')
+def handle_suporte(message):
+    bot.send_message(message.chat.id, '🛟 Suporte: ' + SUPPORT_USERNAME + '\n\nSolicite ajuda diretamente no suporte da loja.')
+
+
+@bot.message_handler(func=lambda m: m.text == 'Language')
+def handle_language(message):
+    bot.send_message(message.chat.id, '🌐 Idioma atual: Português (Brasil)\n\nUse o menu em PT-BR.')
 
 
 @bot.callback_query_handler(func=lambda call: True)
