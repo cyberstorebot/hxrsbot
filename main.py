@@ -27,7 +27,7 @@ except Exception as e:
 # Configuration
 # ----------------------------
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'REPLACE_WITH_YOUR_TOKEN')
-CHECKER_API_URL = os.getenv('CHECKER_API_URL')  # Optional external checker
+CHECKER_API_URL = os.getenv('CHECKER_API_URL')
 REFS_CHANNEL = os.getenv('REFS_CHANNEL', '@haxorstorerefs')
 SUPPORT_USERNAME = os.getenv('SUPPORT_USERNAME', '@haxorsuporte')
 DATA_DIR = os.getenv('DATA_DIR', 'data')
@@ -37,13 +37,12 @@ MOD_STATS_FILE = os.path.join(DATA_DIR, 'mod_stats.json')
 LOG_FILE = os.path.join(DATA_DIR, 'logs.txt')
 USUARIOS_CSV = os.path.join(DATA_DIR, 'usuarios.csv')
 
-# Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN)
 
 # ----------------------------
-# Utility: JSON persistence (only uses json, os, datetime for data I/O)
+# Utility: JSON persistence
 # ----------------------------
 
 def now_str():
@@ -62,7 +61,6 @@ def load_json(path: str, default: Any):
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception:
-        # If corrupted, backup and reinitialize
         try:
             os.rename(path, path + '.bak')
         except Exception:
@@ -80,7 +78,6 @@ def save_json(path: str, data: Any):
 
 
 def log_admin(action_line: str):
-    # Save logs with UTC time
     entry = f'[{now_str()}] {action_line}\n'
     try:
         with open(LOG_FILE, 'a', encoding='utf-8') as f:
@@ -88,18 +85,10 @@ def log_admin(action_line: str):
     except Exception as e:
         print('Failed to write log:', e)
 
-# ----------------------------
-# Load data (structures)
-# users: dict of str(user_id) -> {name, username, role, balance, points, created_at, counters...}
-# cards: list of card dicts
-# mod_stats: dict of mod_id -> {date: YYYY-MM-DD, gifts_today: n}
-# ----------------------------
-
 users = load_json(USERS_FILE, {})
 cards = load_json(CARDS_FILE, [])
 mod_stats = load_json(MOD_STATS_FILE, {})
 
-# Ensure basic fields for users when accessed
 
 def ensure_user(uid: str, username: Optional[str], name: Optional[str]):
     if uid not in users:
@@ -118,9 +107,6 @@ def ensure_user(uid: str, username: Optional[str], name: Optional[str]):
         }
         save_json(USERS_FILE, users)
 
-# ----------------------------
-# Role checks
-# ----------------------------
 
 def is_admin(uid: str) -> bool:
     return users.get(uid, {}).get('role') == 'admin'
@@ -129,9 +115,6 @@ def is_admin(uid: str) -> bool:
 def is_mod(uid: str) -> bool:
     return users.get(uid, {}).get('role') in ('mod', 'admin')
 
-# ----------------------------
-# Helpers for cards
-# ----------------------------
 
 def count_by_level() -> Dict[str, int]:
     counts: Dict[str, int] = {}
@@ -142,8 +125,7 @@ def count_by_level() -> Dict[str, int]:
 
 
 def find_card_for_level(level: str) -> Optional[Dict[str, Any]]:
-    # Return first matching card or None
-    for idx, c in enumerate(cards):
+    for c in cards:
         if c.get('NIVEL', '').upper() == level.upper():
             return c
     return None
@@ -156,33 +138,20 @@ def pop_card(card: Dict[str, Any]) -> None:
     except Exception as e:
         print('Error removing card:', e)
 
-# ----------------------------
-# Checker: validate via API or simulate
-# ----------------------------
 
 def check_card_online(card: Dict[str, Any]) -> bool:
-    """
-    Returns True if card is 'Live', False if 'Dead'. If CHECKER_API_URL is set, POST card and expect JSON {"status":"live"|"dead"}.
-    Otherwise, simulate with random chance.
-    """
     try:
         if CHECKER_API_URL:
             payload = json.dumps(card).encode('utf-8')
             req = urllib.request.Request(CHECKER_API_URL, data=payload, headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
-                s = str(data.get('status', '')).lower()
-                return s == 'live'
-        else:
-            # Simulate: 80% live, 20% dead (this can be tuned)
-            return random.random() < 0.8
+                return str(data.get('status', '')).lower() == 'live'
+        return random.random() < 0.8
     except Exception as e:
         print('Checker error:', e)
         return False
 
-# ----------------------------
-# Formatting delivery message
-# ----------------------------
 
 def format_delivery(card: Dict[str, Any]) -> str:
     numero = card.get('NUMERO', 'N/A')
@@ -207,24 +176,20 @@ def format_delivery(card: Dict[str, Any]) -> str:
     else:
         titular = nome
 
-    formatted = (
+    return (
         f"Compra efetuada! Número: {numero} Validade: {mes}/{ano} CVV: {cvv} Bandeira: {banco} Nivel: {nivel}\n\n"
         f"👤 Titular: {titular}\n"
         f"Nome completo: {nome} CPF: {cpf} Data de nascimento: {nasc}\n"
         f"Estado de origem: {estado} Cidade de origem: {cidade}\n\n"
         f"Telefone: {tel} E-mail: {email}"
     )
-    return formatted
 
-# ----------------------------
-# UI: Main menu and dynamic level buttons
-# ----------------------------
 
 def welcome_header_text() -> str:
     return (
-        "╔═══════════════════════════════╗\n"
-        "║          HONOR CC           ║\n"
-        "╚═══════════════════════════════╝\n\n"
+        "╔══════════════════════════════╗\n"
+        "║          HONOR CC          ║\n"
+        "╚══════════════════════════════╝\n\n"
         "✨ Bem-vindo à Honor CC!\n"
         "Aqui você compra CCs de qualidade com saldo pré-pago — rápido e direto.\n\n"
         "Escolha uma opção abaixo:"
@@ -245,9 +210,7 @@ def levels_inline_markup() -> types.InlineKeyboardMarkup:
     ikb = types.InlineKeyboardMarkup()
     buttons = []
     for lvl, cnt in counts.items():
-        text = f"{lvl} | {cnt}"
-        cb = types.InlineKeyboardButton(text=text, callback_data=f"buy_level::{lvl}")
-        buttons.append(cb)
+        buttons.append(types.InlineKeyboardButton(text=f"{lvl} | {cnt}", callback_data=f"buy_level::{lvl}"))
     row = []
     for b in buttons:
         row.append(b)
@@ -259,9 +222,7 @@ def levels_inline_markup() -> types.InlineKeyboardMarkup:
     ikb.row(types.InlineKeyboardButton('Voltar', callback_data='back::menu'))
     return ikb
 
-# ----------------------------
-# Command handlers
-# ----------------------------
+
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
     uid = str(message.from_user.id)
@@ -289,33 +250,21 @@ def handle_info(message):
     uid = str(message.from_user.id)
     ensure_user(uid, message.from_user.username, message.from_user.first_name)
     u = users[uid]
-    admin_flag = 'Sim' if u.get('role') == 'admin' else 'Não'
-    suporte_flag = 'Sim' if u.get('role') in ('admin', 'mod') else 'Não'
-    ban_flag = 'Não'
-    created = u.get('created_at')
-    carteira_id = u.get('id')
-    saldo = f"R$ {u.get('balance', 0.0):.2f}"
-    pontos = str(u.get('points', 0))
-    bought = u.get('bought_cards', 0)
-    mixs = u.get('mix_count', 0)
-    pix = u.get('pix_recharges', 0)
-    manuals = u.get('manuals', 0)
-
     text = (
         f"✨ Suas Informações 👤\n"
         f"Nome: {u.get('name')}\n"
         f"🌐 User: @{u.get('username')}\n"
-        f"👑 Admin: {admin_flag}\n"
-        f"🛠 Suporte: {suporte_flag}\n"
-        f"🚫 Banido: {ban_flag}\n"
-        f"📅 Data de cadastro: {created}\n"
-        f"🆔 ID da carteira: {carteira_id}\n"
-        f"💰 Saldo: {saldo}\n"
-        f"⭐ Pontos: {pontos}\n\n"
-        f"Cartões comprados: {bought}\n"
-        f"Mixs: {mixs}\n"
-        f"Recargas Pix: {pix}\n"
-        f"Manuais: {manuals}"
+        f"👑 Admin: {'Sim' if u.get('role') == 'admin' else 'Não'}\n"
+        f"🛠 Suporte: {'Sim' if u.get('role') in ('admin', 'mod') else 'Não'}\n"
+        f"🚫 Banido: Não\n"
+        f"📅 Data de cadastro: {u.get('created_at')}\n"
+        f"🆔 ID da carteira: {u.get('id')}\n"
+        f"💰 Saldo: R$ {u.get('balance', 0.0):.2f}\n"
+        f"⭐ Pontos: {u.get('points', 0)}\n\n"
+        f"Cartões comprados: {u.get('bought_cards', 0)}\n"
+        f"Mixs: {u.get('mix_count', 0)}\n"
+        f"Recargas Pix: {u.get('pix_recharges', 0)}\n"
+        f"Manuais: {u.get('manuals', 0)}"
     )
     bot.send_message(message.chat.id, text)
 
@@ -353,13 +302,10 @@ def callback_handler(call: types.CallbackQuery):
             bot.send_message(call.message.chat.id, 'Menu Principal', reply_markup=main_menu_markup())
         else:
             bot.answer_callback_query(call.id, 'Ação desconhecida')
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         bot.answer_callback_query(call.id, 'Erro ao processar ação')
 
-# ----------------------------
-# Purchase processing
-# ----------------------------
 
 def process_purchase_level(message, from_user, level: str):
     uid = str(from_user.id)
@@ -386,13 +332,9 @@ def process_purchase_level(message, from_user, level: str):
 
     bot.send_message(message.chat.id, '🔎 Validando cartão, por favor aguarde...')
     found_live = None
-    attempts = 0
     snapshot = [c for c in cards if c.get('NIVEL', '').upper() == level.upper()]
-    while attempts < len(snapshot):
-        attempts += 1
-        card = snapshot[attempts - 1]
-        live = check_card_online(card)
-        if live:
+    for card in snapshot:
+        if check_card_online(card):
             found_live = card
             break
 
@@ -402,12 +344,11 @@ def process_purchase_level(message, from_user, level: str):
 
     if price > 0.0:
         user['balance'] = round(user.get('balance', 0.0) - price, 2)
-
     user['bought_cards'] = user.get('bought_cards', 0) + 1
     save_json(USERS_FILE, users)
-
     pop_card(found_live)
     delivery = format_delivery(found_live)
+
     ikb = types.InlineKeyboardMarkup()
     ikb.row(types.InlineKeyboardButton('Suporte', url=f'https://t.me/{SUPPORT_USERNAME.lstrip("@")}'), types.InlineKeyboardButton('Voltar', callback_data='back::menu'))
     bot.send_message(message.chat.id, delivery, reply_markup=ikb)
@@ -419,9 +360,6 @@ def process_purchase_level(message, from_user, level: str):
 
     log_admin(f"{uid} | @{user.get('username')} | BUY_LEVEL {level}")
 
-# ----------------------------
-# Admin commands (parsing simple args)
-# ----------------------------
 
 def parse_args(text: str) -> List[str]:
     return [p for p in text.strip().split() if p]
@@ -482,8 +420,7 @@ def cmd_addcash(message):
     for k, v in users.items():
         try:
             old = float(v.get('balance', 0.0))
-            new = round(old * factor, 2)
-            v['balance'] = new
+            v['balance'] = round(old * factor, 2)
         except Exception:
             continue
     save_json(USERS_FILE, users)
@@ -579,7 +516,7 @@ def cmd_addcc(message):
     bot.reply_to(message, 'Cartão adicionado com sucesso')
     log_admin(f"{uid} | @{message.from_user.username} | /addcc {card.get('NUMERO')[:6]}... nivel={card.get('NIVEL')}")
 
-# Mod commands
+
 @bot.message_handler(commands=['addsaldo', 'remsaldo'])
 def cmd_mod_balance(message):
     uid = str(message.from_user.id)
@@ -640,9 +577,6 @@ def cmd_addgift(message):
     bot.reply_to(message, f'Gift {codigo} de R$ {val:.2f} adicionado (usado {stats["gifts_today"]}/2 hoje)')
     log_admin(f"{uid} | @{message.from_user.username} | /addgift {codigo} {val}")
 
-# ----------------------------
-# Spamon: simulate purchases reading usuarios.csv and posting to refs channel
-# ----------------------------
 
 spamon_running = False
 spamon_thread = None
@@ -704,9 +638,6 @@ def cmd_spamon(message):
     else:
         bot.reply_to(message, 'Uso: /spamon on|off')
 
-# ----------------------------
-# Webhook / polling runner
-# ----------------------------
 
 if __name__ == '__main__':
     print('Bot starting...')
