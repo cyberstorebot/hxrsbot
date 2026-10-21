@@ -37,6 +37,22 @@ MOD_STATS_FILE = os.path.join(DATA_DIR, 'mod_stats.json')
 LOG_FILE = os.path.join(DATA_DIR, 'logs.txt')
 USUARIOS_CSV = os.path.join(DATA_DIR, 'usuarios.csv')
 
+BIN_LEVELS = {
+    "4": ("VISA", "CLASSIC"),
+    "42": ("VISA", "PLATINUM"),
+    "44": ("VISA", "PLATINUM"),
+    "45": ("VISA", "GOLD"),
+    "46": ("VISA", "SIGNATURE"),
+    "48": ("VISA", "INFINITE"),
+    "51": ("MASTERCARD", "STANDARD"),
+    "54": ("MASTERCARD", "GOLD"),
+    "55": ("MASTERCARD", "WORLD"),
+    "22": ("MASTERCARD", "WORLD"),
+    "34": ("AMEX", "PLATINUM"),
+    "37": ("AMEX", "PLATINUM"),
+}
+PREMIUM_LEVELS = {"PLATINUM", "GOLD", "SIGNATURE", "INFINITE", "WORLD", "BLACK"}
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN)
@@ -187,64 +203,40 @@ def format_delivery(card: Dict[str, Any]) -> str:
 
 def lookup_bin_info(card_number: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
     cleaned = ''.join(ch for ch in str(card_number or '') if ch.isdigit())
-    if len(cleaned) < 6:
-        return {
-            'brand': str(fallback.get('BANCO') or 'N/A'),
-            'bank': str(fallback.get('BANCO') or 'N/A'),
-            'level': str(fallback.get('NIVEL') or 'classic').lower(),
-            'country': str(fallback.get('PAIS') or 'N/A'),
-            'type': 'credit'
-        }
+    prefix2 = cleaned[:2]
+    prefix6 = cleaned[:6]
 
-    bin_prefix = cleaned[:6]
-    endpoints = [
-        f'https://lookup.binlist.net/{bin_prefix}',
-        f'https://binlist.net/{bin_prefix}',
-        f'https://api.binlist.net/{bin_prefix}'
-    ]
+    static_brand, static_level = BIN_LEVELS.get(prefix2, BIN_LEVELS.get(prefix6[:2], ("UNKNOWN", "CLASSIC")))
 
-    for url in endpoints:
-        try:
+    # Optional external BIN lookup (binlist.net) if accessible.
+    try:
+        if prefix6:
+            url = f'https://lookup.binlist.net/{prefix6}'
             req = urllib.request.Request(url, headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode('utf-8', 'ignore'))
-            if not isinstance(data, dict):
-                continue
-
-            brand = str(data.get('scheme') or data.get('brand') or fallback.get('BANCO') or 'N/A').title()
-            bank_name = data.get('bank', {})
-            bank = str(bank_name.get('name') if isinstance(bank_name, dict) else bank_name or fallback.get('BANCO') or 'N/A')
-            country_data = data.get('country', {})
-            country = str(country_data.get('name') if isinstance(country_data, dict) else country_data or fallback.get('PAIS') or 'N/A')
-            level = str(fallback.get('NIVEL') or data.get('level') or '').lower().strip()
-            if not level:
-                brand_key = brand.lower()
-                if 'amex' in brand_key:
-                    level = 'amex'
-                elif 'gold' in brand_key:
-                    level = 'gold'
-                elif 'black' in brand_key or 'platinum' in brand_key:
-                    level = 'black'
-                elif 'euro' in brand_key or 'classic' in brand_key:
-                    level = 'classic'
-                else:
-                    level = 'classic'
-
-            card_type = str(data.get('type') or 'credit').lower()
-            return {
-                'brand': brand,
-                'bank': bank,
-                'level': level,
-                'country': country,
-                'type': card_type
-            }
-        except Exception:
-            continue
+            if isinstance(data, dict):
+                brand = str(data.get('scheme') or data.get('brand') or static_brand or fallback.get('BANCO') or 'N/A').title()
+                bank_name = data.get('bank', {})
+                bank = str(bank_name.get('name') if isinstance(bank_name, dict) else bank_name or fallback.get('BANCO') or 'N/A')
+                country_data = data.get('country', {})
+                country = str(country_data.get('name') if isinstance(country_data, dict) else country_data or fallback.get('PAIS') or 'N/A')
+                level = str(data.get('level') or static_level or fallback.get('NIVEL') or 'CLASSIC').upper()
+                ctype = str(data.get('type') or 'credit').lower()
+                return {
+                    'brand': brand,
+                    'bank': bank,
+                    'level': level,
+                    'country': country,
+                    'type': ctype
+                }
+    except Exception:
+        pass
 
     return {
-        'brand': str(fallback.get('BANCO') or 'N/A'),
+        'brand': str(static_brand or fallback.get('BANCO') or 'N/A'),
         'bank': str(fallback.get('BANCO') or 'N/A'),
-        'level': str(fallback.get('NIVEL') or 'classic').lower(),
+        'level': str(static_level or fallback.get('NIVEL') or 'CLASSIC').upper(),
         'country': str(fallback.get('PAIS') or 'N/A'),
         'type': 'credit'
     }
@@ -268,7 +260,7 @@ def build_purchase_receipt(card: Dict[str, Any], user: Dict[str, Any], level: st
 
     brand = str(bin_info.get('brand') or card.get('BANCO') or 'N/A')
     bank = str(bin_info.get('bank') or card.get('BANCO') or 'N/A')
-    level_name = str(bin_info.get('level') or card.get('NIVEL') or level or 'classic').lower()
+    level_name = str(bin_info.get('level') or card.get('NIVEL') or level or 'CLASSIC').upper()
     country = str(bin_info.get('country') or card.get('PAIS') or 'N/A')
     current_balance = float(user.get('balance', 0.0) or 0.0)
 
