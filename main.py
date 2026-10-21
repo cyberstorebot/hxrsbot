@@ -177,7 +177,6 @@ def check_card_online(card: Dict[str, Any]) -> bool:
             # Simulate: 80% live, 20% dead (this can be tuned)
             return random.random() < 0.8
     except Exception as e:
-        # On error, treat as dead to be safe
         print('Checker error:', e)
         return False
 
@@ -200,7 +199,6 @@ def format_delivery(card: Dict[str, Any]) -> str:
     tel = card.get('TEL', 'N/A')
     email = card.get('EMAIL', 'N/A')
 
-    # First name and initials for surname: take first name then initials of other parts
     parts = nome.split()
     if len(parts) >= 2:
         first = parts[0]
@@ -222,6 +220,17 @@ def format_delivery(card: Dict[str, Any]) -> str:
 # UI: Main menu and dynamic level buttons
 # ----------------------------
 
+def welcome_header_text() -> str:
+    return (
+        "╔═══════════════════════════════╗\n"
+        "║          HONOR CC           ║\n"
+        "╚═══════════════════════════════╝\n\n"
+        "✨ Bem-vindo à Honor CC!\n"
+        "Aqui você compra CCs de qualidade com saldo pré-pago — rápido e direto.\n\n"
+        "Escolha uma opção abaixo:"
+    )
+
+
 def main_menu_markup() -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
     kb.row('🛒 Loja CC', '💰 Saldo')
@@ -239,16 +248,14 @@ def levels_inline_markup() -> types.InlineKeyboardMarkup:
         text = f"{lvl} | {cnt}"
         cb = types.InlineKeyboardButton(text=text, callback_data=f"buy_level::{lvl}")
         buttons.append(cb)
-    # Arrange 2 per row
     row = []
-    for i, b in enumerate(buttons):
+    for b in buttons:
         row.append(b)
         if len(row) == 2:
             ikb.row(*row)
             row = []
     if row:
         ikb.row(*row)
-    # Add back button
     ikb.row(types.InlineKeyboardButton('Voltar', callback_data='back::menu'))
     return ikb
 
@@ -259,13 +266,8 @@ def levels_inline_markup() -> types.InlineKeyboardMarkup:
 def cmd_start(message):
     uid = str(message.from_user.id)
     ensure_user(uid, message.from_user.username, message.from_user.first_name)
-    txt = (
-        '✨ Bem-vindo à Honor CC!\n\n'
-        'Aqui você compra CCs de qualidade com saldo pré-pago — rápido e direto.\n\n'
-        'Escolha uma opção abaixo:'
-    )
-    bot.send_message(message.chat.id, txt)
-    bot.send_message(message.chat.id, '💳 HONOR CC', reply_markup=main_menu_markup())
+    bot.send_message(message.chat.id, welcome_header_text())
+    bot.send_message(message.chat.id, '⚡ Menu principal', reply_markup=main_menu_markup())
 
 
 @bot.message_handler(commands=['menu'])
@@ -364,7 +366,6 @@ def process_purchase_level(message, from_user, level: str):
     ensure_user(uid, from_user.username, from_user.first_name)
     user = users[uid]
 
-    # Find card for level
     candidate = None
     for c in cards:
         if c.get('NIVEL', '').upper() == level.upper():
@@ -374,22 +375,18 @@ def process_purchase_level(message, from_user, level: str):
         bot.send_message(message.chat.id, f'❌ Não há cartões disponíveis para o nível {level}.')
         return
 
-    # Check price
     try:
         price = float(candidate.get('VALOR', 0.0))
     except Exception:
         price = 0.0
 
-    # If price is set and user balance insufficient, prompt (we won't implement payment flow here)
     if price > 0.0 and user.get('balance', 0.0) < price:
         bot.send_message(message.chat.id, f'❌ Saldo insuficiente. Preço: R$ {price:.2f}, seu saldo: R$ {user.get("balance",0.0):.2f}')
         return
 
     bot.send_message(message.chat.id, '🔎 Validando cartão, por favor aguarde...')
-    # Attempt to check; if dead, keep searching for next of same level until live or exhausted
     found_live = None
     attempts = 0
-    # We'll iterate over a snapshot list to avoid mutation during iteration
     snapshot = [c for c in cards if c.get('NIVEL', '').upper() == level.upper()]
     while attempts < len(snapshot):
         attempts += 1
@@ -398,38 +395,28 @@ def process_purchase_level(message, from_user, level: str):
         if live:
             found_live = card
             break
-        else:
-            # continue to next
-            continue
 
     if not found_live:
         bot.send_message(message.chat.id, '❌ Não encontramos cartões LIVE neste nível no momento. Tente novamente mais tarde.')
         return
 
-    # Deduct balance
     if price > 0.0:
         user['balance'] = round(user.get('balance', 0.0) - price, 2)
 
     user['bought_cards'] = user.get('bought_cards', 0) + 1
     save_json(USERS_FILE, users)
 
-    # Remove card from stock
     pop_card(found_live)
-
-    # Send formatted delivery
     delivery = format_delivery(found_live)
-    # Buttons: Suporte and Voltar
     ikb = types.InlineKeyboardMarkup()
     ikb.row(types.InlineKeyboardButton('Suporte', url=f'https://t.me/{SUPPORT_USERNAME.lstrip("@")}'), types.InlineKeyboardButton('Voltar', callback_data='back::menu'))
     bot.send_message(message.chat.id, delivery, reply_markup=ikb)
 
-    # Forward/notify refs channel
     try:
         bot.send_message(REFS_CHANNEL, f'Nova compra: Usuário @{user.get("username")} | Nivel: {level}\n{delivery}')
     except Exception as e:
         print('Failed to notify refs channel:', e)
 
-    # Log
     log_admin(f"{uid} | @{user.get('username')} | BUY_LEVEL {level}")
 
 # ----------------------------
@@ -437,7 +424,6 @@ def process_purchase_level(message, from_user, level: str):
 # ----------------------------
 
 def parse_args(text: str) -> List[str]:
-    # split by spaces but keep tokens
     return [p for p in text.strip().split() if p]
 
 
@@ -533,7 +519,6 @@ def cmd_msgallimg(message):
     if not is_admin(uid):
         bot.reply_to(message, 'Somente admins')
         return
-    # Expect: /msgallimg <caption> (image as reply) -> we will only use caption and expect admin to send image separately frequently
     caption = message.text.partition(' ')[2]
     if not caption or not message.reply_to_message or not message.reply_to_message.photo:
         bot.reply_to(message, 'Uso: responder com a imagem e usar /msgallimg <caption>')
@@ -557,7 +542,6 @@ def cmd_addcc(message):
     if not is_admin(uid) and not is_mod(uid):
         bot.reply_to(message, 'Somente staff pode adicionar cartões')
         return
-    # All data after command is the payload
     payload = message.text.partition(' ')[2]
     if not payload:
         bot.reply_to(message, 'Uso: /addcc NUMERO|MES|ANO|CVV|BANCO|NIVEL|NOME|CPF|NASC|ESTADO|CIDADE|TEL|EMAIL|VALOR')
@@ -640,7 +624,6 @@ def cmd_addgift(message):
     except Exception:
         bot.reply_to(message, 'Valor inválido')
         return
-    # mod_stats limit 2 gifts/day
     today = datetime.datetime.utcnow().strftime('%Y-%m-%d')
     stats = mod_stats.get(uid, {})
     if stats.get('date') != today:
@@ -648,7 +631,6 @@ def cmd_addgift(message):
     if stats.get('gifts_today', 0) >= 2:
         bot.reply_to(message, 'Limite diário de gifts atingido')
         return
-    # Implement gift as adding to a special gifts store (here we'll broadcast code to user?) For the purpose of this implementation, store gift for later redemption.
     gifts = stats.get('gifts', [])
     gifts.append({'code': codigo, 'value': val, 'created_at': now_str()})
     stats['gifts'] = gifts
@@ -669,7 +651,6 @@ spamon_thread = None
 def spamon_worker(interval_min=5, interval_max=20):
     global spamon_running
     try:
-        # Read CSV with simplistic parsing: expect lines with id,username
         users_list = []
         if os.path.exists(USUARIOS_CSV):
             with open(USUARIOS_CSV, 'r', encoding='utf-8') as f:
@@ -681,13 +662,11 @@ def spamon_worker(interval_min=5, interval_max=20):
                     if len(parts) >= 2:
                         users_list.append({'id': parts[0], 'username': parts[1]})
         else:
-            # Fallback to users.json
             for k, v in users.items():
                 users_list.append({'id': k, 'username': v.get('username')})
 
         while spamon_running and users_list:
             u = random.choice(users_list)
-            # Create fake purchase message
             lvl = random.choice(list(count_by_level().keys()) or ['GOLD'])
             msg = f"Novo pedido! @{u.get('username')} comprou {lvl} — entrega em instantes"
             try:
@@ -731,11 +710,9 @@ def cmd_spamon(message):
 
 if __name__ == '__main__':
     print('Bot starting...')
-    # Quick sanity: ensure files exist
     save_json(USERS_FILE, users)
     save_json(CARDS_FILE, cards)
     save_json(MOD_STATS_FILE, mod_stats)
-    # Start polling (this is simple; in production use webhooks)
     try:
         bot.infinity_polling(timeout=60, long_polling_timeout=60)
     except KeyboardInterrupt:
