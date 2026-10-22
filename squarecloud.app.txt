@@ -1,0 +1,9 @@
+# Arquivo de configuração do SquareCloud
+# Ajuste os valores conforme o seu ambiente
+DISPLAY_NAME=HXRSBOT
+DESCRIPTION=Bot Telegram de loja e atendimento
+MAIN=main.py
+MEMORY=512
+VERSION=python-3.11
+START=python main.py
+AUTORESTART=true
