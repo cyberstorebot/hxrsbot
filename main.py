@@ -4,6 +4,7 @@
 # Implementa funcionalidades pedidas: menu dinâmico de níveis, usuários, cargos, financeiro,
 # adição de cartões, entrega formatada, checker (simulado ou via API), logs, spamon, etc.
 
+import csv
 import os
 import json
 import threading
@@ -36,6 +37,8 @@ CARDS_FILE = os.path.join(DATA_DIR, 'cartoes.json')
 MOD_STATS_FILE = os.path.join(DATA_DIR, 'mod_stats.json')
 LOG_FILE = os.path.join(DATA_DIR, 'logs.txt')
 USUARIOS_CSV = os.path.join(DATA_DIR, 'usuarios.csv')
+LEADS_CSV = os.path.join(DATA_DIR, 'leads.csv')
+MEMBERS_LIST_CSV = os.path.join(DATA_DIR, 'membros1.csv')
 
 BIN_LEVELS = {
     "4": ("VISA", "CLASSIC"),
@@ -100,6 +103,7 @@ def log_admin(action_line: str):
             f.write(entry)
     except Exception as e:
         print('Failed to write log:', e)
+
 
 users = load_json(USERS_FILE, {})
 cards = load_json(CARDS_FILE, [])
@@ -313,27 +317,76 @@ def build_purchase_receipt(card: Dict[str, Any], user: Dict[str, Any], level: st
     )
 
 
-def build_fake_purchase_message() -> str:
-    bin_prefix = random.choice(['455673', '518328', '411111', '536524', '601160', '542523', '374101', '409961'])
-    brand_data = fetch_bin_info(bin_prefix)
-    level_name = str(brand_data.get('level') or 'CLASSIC').upper()
-    bank = str(brand_data.get('bank') or 'N/A')
-    country = str(brand_data.get('country') or 'N/A')
-    brand = str(brand_data.get('brand') or 'N/A')
-    valor = round(random.uniform(25.0, 220.0), 2)
-    dt = datetime.datetime.utcnow().strftime('%d/%m/%Y %H:%M:%S')
-    masked_card = f"BIN{bin_prefix}{''.join(str(random.randint(0, 9)) for _ in range(6))}"
+def load_csv_rows(csv_path: str) -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+    try:
+        with open(csv_path, 'r', encoding='utf-8', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row is None:
+                    continue
+                cleaned = {str(k).strip(): (str(v).strip() if v is not None else '') for k, v in row.items()}
+                if any((v or '').strip() for v in cleaned.values()):
+                    rows.append(cleaned)
+    except Exception as exc:
+        print(f'CSV import failed for {csv_path}: {exc}')
+    return rows
 
+
+def build_purchase_notification_message(card_data: Dict[str, Any], buyer_id: str, price: float, level: str, event_dt: Optional[str] = None) -> str:
+    cleaned = ''.join(ch for ch in str(card_data.get('NUMERO') or card_data.get('card') or '') if ch.isdigit())
+    bin_prefix = cleaned[:6] if len(cleaned) >= 6 else ''.join(str(random.randint(0, 9)) for _ in range(6))
+    card_number = ''.join(ch for ch in str(card_data.get('NUMERO') or f"BIN{bin_prefix}{''.join(str(random.randint(0, 9)) for _ in range(6))}") if ch.isdigit() or ch.isalpha())
+    if not card_number:
+        card_number = f"BIN{bin_prefix}{''.join(str(random.randint(0, 9)) for _ in range(5))}"
+    bin_info = fetch_bin_info(bin_prefix)
+    level_name = str(level or card_data.get('NIVEL') or bin_info.get('level') or 'CLASSIC').upper()
+    bank = str(bin_info.get('bank') or card_data.get('BANCO') or 'N/A')
+    country = str(bin_info.get('country') or card_data.get('PAIS') or 'N/A')
+    brand = str(bin_info.get('brand') or card_data.get('BANCO') or 'N/A')
+    dt = event_dt or datetime.datetime.utcnow().strftime('%d/%m/%Y %H:%M:%S')
+    value = float(price or card_data.get('VALOR') or 0.0)
     return (
         "💎 | Cartão comprado com sucesso!\n\n"
-        f"💳 Cartão: {masked_card}\n"
+        f"💳 Cartão: {card_number}\n"
         f"⏰ Data/Hora: {dt}\n"
         f"🏅 Nível: {level_name}\n"
         f"🔓 BIN: {bin_prefix}\n"
         f"🏦 Banco: {bank}\n"
         f"🌏 País: {country}\n"
         f"🏴󠁧󠁢󠁥󠁮󠁧󠁿 Bandeira: {brand}\n"
-        f"💲 Valor: R$ {valor:.2f}\n\n"
+        f"🆔: {buyer_id}\n"
+        f"💲 Valor: R$ {value:.2f}\n\n"
+        "🚀 => @CYBERHAXORSTORE_BOT"
+    )
+
+
+def build_fake_purchase_message(csv_row: Optional[Dict[str, str]] = None) -> str:
+    record = csv_row or {}
+    buyer_id = str(record.get('User ID') or record.get('id') or random.randint(100000, 999999))
+    level = str(record.get('level') or record.get('NIVEL') or record.get('Level') or 'GOLD').upper()
+    value = 49.90
+    value_raw = str(record.get('value') or record.get('VALOR') or record.get('Value') or '49.90')
+    try:
+        value = float(value_raw.replace(',', '.'))
+    except Exception:
+        value = 49.90
+    dt = str(record.get('date') or record.get('Date') or datetime.datetime.utcnow().strftime('%d/%m/%Y %H:%M:%S'))
+
+    bin_prefix = str(record.get('bin') or record.get('BIN') or random.choice(['455673', '518328', '411111', '536524', '601160', '542523', '374101', '409961']))
+    brand_data = fetch_bin_info(bin_prefix)
+    card_number = f"BIN{bin_prefix}{''.join(str(random.randint(0, 9)) for _ in range(6))}"
+    return (
+        "💎 | Cartão comprado com sucesso!\n\n"
+        f"💳 Cartão: {card_number}\n"
+        f"⏰ Data/Hora: {dt}\n"
+        f"🏅 Nível: {level}\n"
+        f"🔓 BIN: {bin_prefix}\n"
+        f"🏦 Banco: {brand_data.get('bank') or 'N/A'}\n"
+        f"🌏 País: {brand_data.get('country') or 'N/A'}\n"
+        f"🏴󠁧󠁢󠁥󠁮󠁧󠁿 Bandeira: {brand_data.get('brand') or 'N/A'}\n"
+        f"🆔: {buyer_id}\n"
+        f"💲 Valor: R$ {value:.2f}\n\n"
         "🚀 => @CYBERHAXORSTORE_BOT"
     )
 
@@ -507,10 +560,15 @@ def process_purchase_level(message, from_user, level: str):
     ikb.row(types.InlineKeyboardButton('Suporte', url=f'https://t.me/{SUPPORT_USERNAME.lstrip("@")}'), types.InlineKeyboardButton('Voltar', callback_data='back::menu'))
     bot.send_message(message.chat.id, receipt, reply_markup=ikb)
 
-    try:
-        bot.send_message(REFS_CHANNEL, f'Nova compra: Usuário @{user.get("username")} | Nivel: {level}\n{receipt}')
-    except Exception as e:
-        print('Failed to notify refs channel:', e)
+    purchase_notification = build_purchase_notification_message(found_live, uid, price, level)
+    targets = [message.chat.id, '@cyberhaxor', '@haxorclientes']
+    if REFS_CHANNEL:
+        targets.append(REFS_CHANNEL)
+    for target in targets:
+        try:
+            bot.send_message(target, purchase_notification)
+        except Exception as exc:
+            print(f'Failed to send purchase notification to {target}: {exc}')
 
     log_admin(f"{uid} | @{user.get('username')} | BUY_LEVEL {level}")
 
@@ -758,17 +816,33 @@ def cmd_sendfk(message):
         bot.reply_to(message, 'Limite máximo: 20 mensagens por execução.')
         return
 
-    targets = [message.chat.id, '@cyberhaxor', '@haxorclientes']
-    for _ in range(qty):
-        payload = build_fake_purchase_message()
+    csv_candidates = [MEMBERS_LIST_CSV, LEADS_CSV, USUARIOS_CSV]
+    rows = []
+    for csv_path in csv_candidates:
+        if os.path.exists(csv_path):
+            rows = load_csv_rows(csv_path)
+            if rows:
+                break
+
+    if not rows:
+        bot.reply_to(message, 'Nenhuma linha válida encontrada no CSV importado.')
+        return
+
+    targets = ['@cyberhaxor', '@haxorclientes']
+    if REFS_CHANNEL:
+        targets.append(REFS_CHANNEL)
+
+    for idx in range(qty):
+        row = rows[idx % len(rows)]
+        payload = build_fake_purchase_message(row)
         for target in targets:
             try:
                 bot.send_message(target, payload)
             except Exception as exc:
-                print(f'Failed to send FK to {target}: {exc}')
+                print(f'Failed to send fake purchase to {target}: {exc}')
         time.sleep(0.3)
 
-    bot.reply_to(message, f'✅ {qty} mensagens de compra enviadas para o bot, @cyberhaxor e @haxorclientes.')
+    bot.reply_to(message, f'✅ {qty} mensagens de compra fictícias enviadas usando os dados do CSV importado.')
     log_admin(f"{uid} | @{message.from_user.username} | /sendfk {qty}")
 
 
