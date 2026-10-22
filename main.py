@@ -208,7 +208,6 @@ def lookup_bin_info(card_number: str, fallback: Dict[str, Any]) -> Dict[str, Any
 
     static_brand, static_level = BIN_LEVELS.get(prefix2, BIN_LEVELS.get(prefix6[:2], ("UNKNOWN", "CLASSIC")))
 
-    # Optional external BIN lookup (binlist.net) if accessible.
     try:
         if prefix6:
             url = f'https://lookup.binlist.net/{prefix6}'
@@ -240,6 +239,37 @@ def lookup_bin_info(card_number: str, fallback: Dict[str, Any]) -> Dict[str, Any
         'country': str(fallback.get('PAIS') or 'N/A'),
         'type': 'credit'
     }
+
+
+def fetch_bin_info(bin_number: str) -> Dict[str, Any]:
+    cleaned = ''.join(ch for ch in str(bin_number or '') if ch.isdigit())
+    prefix6 = cleaned[:6]
+    if len(prefix6) < 6:
+        return {'brand': 'N/A', 'bank': 'N/A', 'level': 'CLASSIC', 'country': 'N/A', 'type': 'credit'}
+
+    try:
+        url = f'https://lookup.binlist.net/{prefix6}'
+        req = urllib.request.Request(url, headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8', 'ignore'))
+        if not isinstance(data, dict):
+            raise ValueError('BIN API returned non-object')
+
+        brand = str(data.get('scheme') or data.get('brand') or 'N/A').title()
+        bank_name = data.get('bank', {})
+        bank = str(bank_name.get('name') if isinstance(bank_name, dict) else bank_name or 'N/A')
+        country_data = data.get('country', {})
+        country = str(country_data.get('name') if isinstance(country_data, dict) else country_data or 'N/A')
+        level = str(data.get('level') or 'CLASSIC').upper()
+        return {
+            'brand': brand,
+            'bank': bank,
+            'level': level,
+            'country': country,
+            'type': str(data.get('type') or 'credit').lower(),
+        }
+    except Exception:
+        return lookup_bin_info(prefix6, {})
 
 
 def build_purchase_receipt(card: Dict[str, Any], user: Dict[str, Any], level: str, price: float, auth_ref: str) -> str:
@@ -280,6 +310,31 @@ def build_purchase_receipt(card: Dict[str, Any], user: Dict[str, Any], level: st
         f"🔍 Retorno do Checker: Transação autorizada (rdAuthGater LIVE) ({auth_ref})\n"
         f"💸 Valor: R$ {float(price):.2f}\n"
         f"💰 Seu saldo atual: R$ {current_balance:.2f}"
+    )
+
+
+def build_fake_purchase_message() -> str:
+    bin_prefix = random.choice(['455673', '518328', '411111', '536524', '601160', '542523', '374101', '409961'])
+    brand_data = fetch_bin_info(bin_prefix)
+    level_name = str(brand_data.get('level') or 'CLASSIC').upper()
+    bank = str(brand_data.get('bank') or 'N/A')
+    country = str(brand_data.get('country') or 'N/A')
+    brand = str(brand_data.get('brand') or 'N/A')
+    valor = round(random.uniform(25.0, 220.0), 2)
+    dt = datetime.datetime.utcnow().strftime('%d/%m/%Y %H:%M:%S')
+    masked_card = f"BIN{bin_prefix}{''.join(str(random.randint(0, 9)) for _ in range(6))}"
+
+    return (
+        "💎 | Cartão comprado com sucesso!\n\n"
+        f"💳 Cartão: {masked_card}\n"
+        f"⏰ Data/Hora: {dt}\n"
+        f"🏅 Nível: {level_name}\n"
+        f"🔓 BIN: {bin_prefix}\n"
+        f"🏦 Banco: {bank}\n"
+        f"🌏 País: {country}\n"
+        f"🏴󠁧󠁢󠁥󠁮󠁧󠁿 Bandeira: {brand}\n"
+        f"💲 Valor: R$ {valor:.2f}\n\n"
+        "🚀 => @CYBERHAXORSTORE_BOT"
     )
 
 
@@ -675,6 +730,46 @@ def cmd_addgift(message):
     save_json(MOD_STATS_FILE, mod_stats)
     bot.reply_to(message, f'Gift {codigo} de R$ {val:.2f} adicionado (usado {stats["gifts_today"]}/2 hoje)')
     log_admin(f"{uid} | @{message.from_user.username} | /addgift {codigo} {val}")
+
+
+@bot.message_handler(commands=['sendfk'])
+def cmd_sendfk(message):
+    uid = str(message.from_user.id)
+    if not is_admin(uid):
+        bot.reply_to(message, 'Somente admins podem usar /sendfk')
+        return
+
+    parts = parse_args(message.text)
+    if len(parts) < 2:
+        bot.reply_to(message, 'Uso: /sendfk QUANTIDADE')
+        return
+
+    try:
+        qty = int(parts[1])
+    except ValueError:
+        bot.reply_to(message, 'Quantidade inválida. Use um número inteiro.')
+        return
+
+    if qty <= 0:
+        bot.reply_to(message, 'A quantidade precisa ser maior que zero.')
+        return
+
+    if qty > 20:
+        bot.reply_to(message, 'Limite máximo: 20 mensagens por execução.')
+        return
+
+    targets = [message.chat.id, '@cyberhaxor', '@haxorclientes']
+    for _ in range(qty):
+        payload = build_fake_purchase_message()
+        for target in targets:
+            try:
+                bot.send_message(target, payload)
+            except Exception as exc:
+                print(f'Failed to send FK to {target}: {exc}')
+        time.sleep(0.3)
+
+    bot.reply_to(message, f'✅ {qty} mensagens de compra enviadas para o bot, @cyberhaxor e @haxorclientes.')
+    log_admin(f"{uid} | @{message.from_user.username} | /sendfk {qty}")
 
 
 spamon_running = False
