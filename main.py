@@ -26,10 +26,10 @@ except Exception as e:
 # ----------------------------
 # Configuration
 # ----------------------------
-TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'REPLACE_WITH_YOUR_TOKEN')
+TOKEN = os.getenv('8980085254:AAGLPgyc5ungfqCMC0b8cV0eeHLh6TwQwCs', '8980085254:AAGLPgyc5ungfqCMC0b8cV0eeHLh6TwQwCs')
 CHECKER_API_URL = os.getenv('CHECKER_API_URL')
-REFS_CHANNEL = os.getenv('REFS_CHANNEL', '@haxorstorerefs')
-SUPPORT_USERNAME = os.getenv('SUPPORT_USERNAME', '@haxorsuporte')
+REFS_CHANNEL = os.getenv('@HaxorClientes', '@HaxorClientes')
+SUPPORT_USERNAME = os.getenv('HaxorSuporte', '@HaxorSuporte')
 DATA_DIR = os.getenv('DATA_DIR', 'data')
 USERS_FILE = os.path.join(DATA_DIR, 'usuarios.json')
 CARDS_FILE = os.path.join(DATA_DIR, 'cartoes.json')
@@ -285,11 +285,11 @@ def build_purchase_receipt(card: Dict[str, Any], user: Dict[str, Any], level: st
 
 def welcome_header_text() -> str:
     return (
-        "╔══════════════════════════════╗\n"
-        "║          HONOR CC          ║\n"
-        "╚══════════════════════════════╝\n\n"
-        "✨ Bem-vindo à Honor CC!\n"
-        "Aqui você compra CCs de qualidade com saldo pré-pago — rápido e direto.\n\n"
+        "╔══════════════════════════╗\n"
+        "║     CyberHaxor Store     ║\n"
+        "╚══════════════════════════╝\n\n"
+        "✨ Bem-vindo a CyberHaxor Store!\n"
+        "Aqui você encontra CCs de qualidade, com dados completos dos titulares do cartão — rápido e direto.\n\n"
         "Escolha uma opção abaixo:"
     )
 
