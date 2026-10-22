@@ -832,17 +832,27 @@ def cmd_sendfk(message):
     if REFS_CHANNEL:
         targets.append(REFS_CHANNEL)
 
+    window_seconds = 32 * 60
+    per_message_window = max(5.0, float(window_seconds) / max(1, qty))
+    sent_count = 0
+
     for idx in range(qty):
         row = rows[idx % len(rows)]
         payload = build_fake_purchase_message(row)
-        for target in targets:
+        shuffled_targets = list(targets)
+        random.shuffle(shuffled_targets)
+        for target in shuffled_targets:
             try:
                 bot.send_message(target, payload)
             except Exception as exc:
                 print(f'Failed to send fake purchase to {target}: {exc}')
-        time.sleep(0.3)
 
-    bot.reply_to(message, f'✅ {qty} mensagens de compra fictícias enviadas usando os dados do CSV importado.')
+        sent_count += 1
+        if idx < qty - 1:
+            delay = random.uniform(0.0, per_message_window)
+            time.sleep(delay)
+
+    bot.reply_to(message, f'✅ {qty} mensagens de compra fictícias enviadas aleatoriamente ao longo de 32 minutos.')
     log_admin(f"{uid} | @{message.from_user.username} | /sendfk {qty}")
 
 
